@@ -342,7 +342,42 @@
     width:100%;
     box-shadow:0 8px 18px -8px rgba(37,211,102,.55);
   }
-  .btn-whats:hover{background:#1FAE58;}
+    .btn-whats:hover{background:#1FAE58;}
+
+  /* ---------- Assinatura ---------- */
+  .sig-wrap{
+    border:1.5px dashed var(--line);
+    border-radius:10px;
+    background:#fff;
+    overflow:hidden;
+    touch-action:none;
+    margin-bottom:10px;
+  }
+  .sig-wrap canvas{
+    display:block;
+    width:100%;
+    height:180px;
+    cursor:crosshair;
+  }
+  .sig-actions{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:20px;
+  }
+  .sig-hint{
+    font-size:12px;
+    color:var(--ink-soft);
+  }
+  .sig-hint.error{color:var(--error);}
+  .btn-clear{
+    background:transparent;
+    color:var(--ink-soft);
+    border:1px solid var(--line);
+    padding:8px 14px;
+    font-size:13px;
+  }
+  .btn-clear:hover{color:var(--primary-dark); border-color:var(--primary);}
 
   footer.foot{
     text-align:center;
@@ -405,10 +440,11 @@ const state = {
   emerg_nome: "", emerg_parentesco: "", emerg_tel: "",
   resp_nome: familia.resp_nome || "",
   resp_tel: familia.resp_tel || "",
+  assinatura: null,
   enviado: false
 };
 
-const steps = ["Aluno(a)", "Saúde", "Emergência", "Revisão"];
+const steps = ["Aluno(a)", "Saúde", "Emergência", "Assinatura", "Revisão"];
 const sheet = document.getElementById('sheet');
 const tabsEl = document.getElementById('tabs');
 
@@ -450,7 +486,8 @@ function render(){
     case 0: renderAluno(); break;
     case 1: renderSaude(); break;
     case 2: renderEmergencia(); break;
-    case 3: renderRevisao(); break;
+    case 3: renderAssinatura(); break;
+    case 4: renderRevisao(); break;
   }
 }
 
@@ -553,7 +590,7 @@ function renderSaude(){
 /* ---------- Etapa 2: Emergência ---------- */
 function renderEmergencia(){
   sheet.innerHTML = `
-    <p class="step-eyebrow">Etapa 3 de 4</p>
+    <p class="step-eyebrow">Etapa 3 de 5</p>
     <h2 class="step-title">Contato de emergência</h2>
     ${fieldHtml('emerg_nome','Nome do contato','text',state.emerg_nome,'','req')}
     <div class="row2">
@@ -584,10 +621,40 @@ function renderEmergencia(){
   });
 }
 
+/* ---------- Etapa 3: Assinatura ---------- */
+function renderAssinatura(){
+  sheet.innerHTML = `
+    <p class="step-eyebrow">Etapa 4 de 5</p>
+    <h2 class="step-title">Assinatura do responsável</h2>
+    <p style="color:var(--ink-soft); font-size:13.5px; margin:-8px 0 14px;">Assine com o dedo (celular) ou o mouse (computador) na área abaixo.</p>
+    <div class="sig-wrap"><canvas id="sigCanvas"></canvas></div>
+    <div class="sig-actions">
+      <button class="btn-clear" id="clearSigBtn">🗑️ Limpar</button>
+      <span class="sig-hint" id="sigHint">Toque e arraste para assinar</span>
+    </div>
+    <div class="nav-row">
+      <button class="btn-ghost" id="backBtn">← Voltar</button>
+      <button class="btn-primary" id="nextBtn">Avançar →</button>
+    </div>
+  `;
+  setupSignaturePad();
+  document.getElementById('backBtn').addEventListener('click', ()=>goStep(2));
+  document.getElementById('nextBtn').addEventListener('click', ()=>{
+    if(!state.assinatura){
+      const hint = document.getElementById('sigHint');
+      hint.textContent = 'Por favor, assine antes de continuar';
+      hint.classList.add('error');
+      shake('sheet');
+      return;
+    }
+    goStep(4);
+  });
+}
+
 /* ---------- Etapa 3: Revisão ---------- */
 function renderRevisao(){
   sheet.innerHTML = `
-    <p class="step-eyebrow">Etapa 4 de 4</p>
+    <p class="step-eyebrow">Etapa 5 de 5</p>
     <h2 class="step-title">Confira e envie</h2>
 
     <div class="review-block">
@@ -614,6 +681,11 @@ function renderRevisao(){
       <div class="review-row"><dt>Responsável</dt><dd>${state.resp_nome}</dd></div>
     </div>
 
+    <div class="review-block">
+      <h3>Assinatura</h3>
+      <img src="${state.assinatura}" alt="Assinatura" style="max-width:220px; border-bottom:1.5px solid var(--line); padding-bottom:6px;">
+    </div>
+
     <div class="seal-wrap">
       <div class="seal" id="sealBtn">📄</div>
       <div class="seal-label">Toque no selo para gerar a ficha</div>
@@ -624,7 +696,7 @@ function renderRevisao(){
       <span></span>
     </div>
   `;
-  document.getElementById('backBtn').addEventListener('click', ()=>goStep(2));
+  document.getElementById('backBtn').addEventListener('click', ()=>goStep(3));
   document.getElementById('sealBtn').addEventListener('click', finalizarFicha);
 }
 
@@ -654,7 +726,7 @@ function renderConfirm(){
       step:0, aluno_nome:"", aluno_nasc:"", aluno_turma:"",
       tipo_sanguineo:"", convenio:"", alergias:"", medicamentos:"", restricoes:"", condicao:"",
       emerg_nome:"", emerg_parentesco:"", emerg_tel:"", resp_nome:"", resp_tel:"",
-      enviado:false
+      assinatura:null, enviado:false
     });
     render();
   });
@@ -682,6 +754,60 @@ function buildMensagem(){
 }
 
 /* ---------- PDF ---------- */
+/* ---------- Assinatura (canvas) ---------- */
+function setupSignaturePad(){
+  const canvas = document.getElementById('sigCanvas');
+  const ctx = canvas.getContext('2d');
+  const ratio = window.devicePixelRatio || 1;
+
+  function resize(){
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * ratio;
+    canvas.height = rect.height * ratio;
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#2B211C';
+    if(state.assinatura){
+      const img = new Image();
+      img.onload = ()=> ctx.drawImage(img, 0, 0, rect.width, rect.height);
+      img.src = state.assinatura;
+    }
+  }
+  resize();
+
+  let drawing = false;
+  function pos(e){
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+  }
+  function start(e){ drawing = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+  function move(e){ if(!drawing) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+  function end(){
+    if(!drawing) return;
+    drawing = false;
+    state.assinatura = canvas.toDataURL('image/png');
+    const hint = document.getElementById('sigHint');
+    if(hint){ hint.textContent = 'Assinatura capturada ✓'; hint.classList.remove('error'); }
+  }
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start, {passive:false});
+  canvas.addEventListener('touchmove', move, {passive:false});
+  canvas.addEventListener('touchend', end);
+
+  document.getElementById('clearSigBtn').addEventListener('click', ()=>{
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    state.assinatura = null;
+    const hint = document.getElementById('sigHint');
+    hint.textContent = 'Toque e arraste para assinar';
+    hint.classList.remove('error');
+  });
+}
+
 const pdfState = { doc:null, url:null, file:null };
 
 function gerarPDF(){
@@ -689,7 +815,11 @@ function gerarPDF(){
   const doc = new jsPDF({ unit:'mm', format:'a4' });
   const marginX = 20;
   const pageW = 210;
-  let y = 20;
+  const pageH = 297;
+  let y = 22;
+
+  doc.setFillColor(196,23,31);
+  doc.rect(0, 0, pageW, 3, 'F');
 
   try{
     const logoSrc = document.querySelector('.crest img').src;
@@ -705,16 +835,23 @@ function gerarPDF(){
   doc.setTextColor(90,75,65);
   doc.text(CONFIG.nomeEscola, marginX + 26, y + 6);
 
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(8);
+  doc.setTextColor(150,135,125);
+  doc.text(new Date().toLocaleDateString('pt-BR'), pageW - marginX, y - 6, { align:'right' });
+
   y += 18;
   doc.setDrawColor(225,211,200);
   doc.line(marginX, y, pageW - marginX, y);
   y += 10;
 
   function section(title){
+    doc.setFillColor(196,23,31);
+    doc.rect(marginX, y - 3.2, 3, 3, 'F');
     doc.setFont('helvetica','bold');
     doc.setFontSize(10.5);
     doc.setTextColor(196,23,31);
-    doc.text(title.toUpperCase(), marginX, y);
+    doc.text(title.toUpperCase(), marginX + 6, y);
     y += 7;
     doc.setFont('helvetica','normal');
     doc.setFontSize(11);
@@ -762,16 +899,25 @@ function gerarPDF(){
   section('Responsável que preencheu');
   row('Nome', state.resp_nome);
   row('Telefone', state.resp_tel);
-  y += 14;
+  y += 12;
 
-  doc.setDrawColor(225,211,200);
-  doc.line(marginX, y, marginX + 70, y);
+  if(state.assinatura){
+    try{ doc.addImage(state.assinatura, 'PNG', marginX, y - 14, 55, 18); }catch(e){}
+  }
+  doc.setDrawColor(180,165,155);
+  doc.line(marginX, y + 6, marginX + 70, y + 6);
   doc.setFontSize(9);
   doc.setTextColor(120,105,95);
-  doc.text('Assinatura do responsável', marginX, y + 5);
+  doc.text('Assinatura do responsável', marginX, y + 11);
+  doc.text(state.resp_nome || '', marginX, y + 16);
 
-  doc.setFontSize(8.5);
-  doc.text(`Documento gerado em ${new Date().toLocaleString('pt-BR')}`, marginX, 285);
+  doc.setDrawColor(225,211,200);
+  doc.line(marginX, pageH - 16, pageW - marginX, pageH - 16);
+  doc.setFontSize(8);
+  doc.setTextColor(140,125,115);
+  doc.text(`${CONFIG.nomeEscola} · Ficha de Saúde`, marginX, pageH - 11);
+  doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, pageW - marginX, pageH - 11, { align:'right' });
+  doc.text('Página 1 de 1', pageW / 2, pageH - 11, { align:'center' });
 
   return doc;
 }
